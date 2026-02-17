@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Vote</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<div class="container">
+  <h1>Vote for Your Favorite Candidate</h1>
+
+  <!-- Candidates load from server -->
+  <div id="candidates"></div>
+
+  <div class="admin-link">
+    <a href="/admin-login">Admin Login</a>
+  </div>
+</div>
+
+<script>
+fetch("/api/candidates")
+  .then(res => res.json())
+  .then(data => {
+    const div = document.getElementById("candidates");
+    data.forEach(c => {
+      div.innerHTML += `
+        <div class="candidate">
+          <h3>${c.name}</h3>
+          <p>Votes: ${c.votes}</p>
+          <form method="POST" action="/vote">
+            <input type="hidden" name="candidateId" value="${c.id}">
+            <input name="phone" placeholder="MTN MoMo Number" required>
+            <button type="submit">Pay & Vote</button>
+          </form>
+        </div>
+      `;
+    });
+  });
+</script>
+
+</body>
+</html>

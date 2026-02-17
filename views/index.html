@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MoMo Vote</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <h1>Vote for Your Favorite Candidate</h1>
+
+  <!-- Candidates will be injected here -->
+  <div id="candidates"></div>
+
+  <script>
+    fetch('/api/candidates')
+      .then(res => res.json())
+      .then(data => {
+        const container = document.getElementById('candidates');
+
+        data.forEach(c => {
+          const div = document.createElement('div');
+          div.className = 'card';
+
+          div.innerHTML = `
+            <h3>${c.name}</h3>
+            <p>Votes: ${c.votes}</p>
+            <form method="POST" action="/vote/${c.id}">
+              <button type="submit">Vote</button>
+            </form>
+          `;
+
+          container.appendChild(div);
+        });
+      });
+  </script>
+
+</body>
+</html>

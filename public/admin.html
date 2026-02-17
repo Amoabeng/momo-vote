@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Admin Panel</title>
+</head>
+<body>
+  <h1>Admin Panel</h1>
+
+  <h3>Add Candidate</h3>
+  <form action="/admin/add-candidate" method="POST">
+    <input type="text" name="name" placeholder="Candidate name" required>
+    <button type="submit">Add Candidate</button>
+  </form>
+
+  <hr>
+
+  <h3>Current Candidates</h3>
+  <ul id="candidateList"></ul>
+
+  <script>
+    fetch('/admin/candidates')
+      .then(res => res.json())
+      .then(data => {
+        const list = document.getElementById('candidateList');
+        data.forEach(c => {
+          const li = document.createElement('li');
+          li.textContent = `${c.name} (Votes: ${c.votes})`;
+          list.appendChild(li);
+        });
+      });
+  </script>
+</body>
+</html>
