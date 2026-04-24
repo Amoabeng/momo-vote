@@ -2,32 +2,36 @@
 <html>
 <head>
   <title>Admin Panel</title>
+  <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <h1>Admin Panel</h1>
 
-  <h3>Add Candidate</h3>
-  <form action="/admin/add-candidate" method="POST">
-    <input type="text" name="name" placeholder="Candidate name" required>
-    <button type="submit">Add Candidate</button>
-  </form>
+<div class="container">
+  <h1>📊 Admin Dashboard</h1>
+  <p style="text-align:center;">Live voting results</p>
 
-  <hr>
+  <div id="results"></div>
 
-  <h3>Current Candidates</h3>
-  <ul id="candidateList"></ul>
+  <br>
+  <a href="/logout">Logout</a>
+</div>
 
-  <script>
-    fetch('/admin/candidates')
-      .then(res => res.json())
-      .then(data => {
-        const list = document.getElementById('candidateList');
-        data.forEach(c => {
-          const li = document.createElement('li');
-          li.textContent = `${c.name} (Votes: ${c.votes})`;
-          list.appendChild(li);
-        });
-      });
-  </script>
+<script>
+fetch("/api/candidates")
+  .then(res => res.json())
+  .then(data => {
+    const div = document.getElementById("results");
+
+    data.forEach(c => {
+      div.innerHTML += `
+        <div class="candidate">
+          <h3>${c.name}</h3>
+          <p><strong>${c.votes}</strong> votes</p>
+        </div>
+      `;
+    });
+  });
+</script>
+
 </body>
 </html>

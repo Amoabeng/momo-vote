@@ -153,7 +153,13 @@ app.get("/confirm/:ref", async (req, res) => {
         [candidateId]
       );
       delete pendingPayments[ref];
-      res.send("Vote counted successfully!");
+     res.send(`
+  <div style="text-align:center; padding:50px;">
+    <h2>✅ Vote Successful!</h2>
+    <p>Your vote has been recorded.</p>
+    <a href="/">Go Back</a>
+  </div>
+`);
     } else {
       res.send("Payment pending");
     }
