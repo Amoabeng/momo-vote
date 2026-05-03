@@ -4,9 +4,23 @@ const axios = require("axios");
 const session = require("express-session");
 const sqlite3 = require("sqlite3").verbose();
 const { v4: uuidv4 } = require("uuid");
+const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ---------- MIDDLEWARE ----------
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+
+// Serve static files (VERY IMPORTANT for CSS & HTML)
+app.use(express.static("public"));
+
+app.use(session({
+  secret: "very_secret_key",
+  resave: false,
+  saveUninitialized: false
+}));
 
 // ---------- DATABASE ----------
 const db = new sqlite3.Database("./votes.db");
@@ -49,17 +63,7 @@ db.serialize(() => {
   });
 });
 
-// ---------- MIDDLEWARE ----------
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
-
-app.use(session({
-  secret: "very_secret_key",
-  resave: false,
-  saveUninitialized: false
-}));
-
-// ---------- MTN MOMO (SANDBOX) ----------
+// ---------- MTN MOMO ----------
 const SUBSCRIPTION_KEY = "PUT_PRIMARY_KEY_HERE";
 const TARGET_ENV = "sandbox";
 let pendingPayments = {};
@@ -70,14 +74,20 @@ function requireAdmin(req, res, next) {
   else res.redirect("/admin-login");
 }
 
-// ---------- HOME ----------
+// ---------- HOME PAGE ----------
 app.get("/", (req, res) => {
   db.all("SELECT * FROM candidates", (err, rows) => {
-    let html = `<h1>Vote for Your Favorite Candidate</h1>`;
+
+    let html = `
+    <link rel="stylesheet" href="/css/style.css">
+    <div class="container">
+      <h1>🗳️ Online Voting System</h1>
+      <p style="text-align:center;">Secure voting powered by MoMo</p>
+    `;
 
     rows.forEach(c => {
       html += `
-        <div>
+        <div class="candidate">
           <h3>${c.name}</h3>
           <p>Votes: ${c.votes}</p>
           <form method="POST" action="/vote">
@@ -85,10 +95,11 @@ app.get("/", (req, res) => {
             <input name="phone" placeholder="024XXXXXXX" required>
             <button type="submit">Pay & Vote</button>
           </form>
-          <hr>
         </div>
       `;
     });
+
+    html += `</div>`;
 
     res.send(html);
   });
@@ -123,9 +134,16 @@ app.post("/vote", async (req, res) => {
       }
     );
 
-    res.send(`<a href="/confirm/${referenceId}">Confirm Payment</a>`);
+    res.send(`
+      <div style="text-align:center; padding:50px;">
+        <h2>💳 Payment Initiated</h2>
+        <p>Dial on your phone to approve payment</p>
+        <a href="/confirm/${referenceId}">Confirm Payment</a>
+      </div>
+    `);
+
   } catch {
-    res.send("Payment failed");
+    res.send("❌ Payment request failed");
   }
 });
 
@@ -152,17 +170,20 @@ app.get("/confirm/:ref", async (req, res) => {
         "UPDATE candidates SET votes = votes + 1 WHERE id = ?",
         [candidateId]
       );
+
       delete pendingPayments[ref];
-     res.send(`
-  <div style="text-align:center; padding:50px;">
-    <h2>✅ Vote Successful!</h2>
-    <p>Your vote has been recorded.</p>
-    <a href="/">Go Back</a>
-  </div>
-`);
+
+      res.send(`
+        <div style="text-align:center; padding:50px;">
+          <h2>✅ Vote Successful!</h2>
+          <p>Your vote has been recorded.</p>
+          <a href="/">Go Back</a>
+        </div>
+      `);
     } else {
-      res.send("Payment pending");
+      res.send("⏳ Payment still pending...");
     }
+
   } catch {
     res.send("Error confirming payment");
   }
@@ -170,18 +191,12 @@ app.get("/confirm/:ref", async (req, res) => {
 
 // ---------- ADMIN LOGIN ----------
 app.get("/admin-login", (req, res) => {
-  res.send(`
-    <h2>Admin Login</h2>
-    <form method="POST">
-      <input name="username" required>
-      <input name="password" type="password" required>
-      <button>Login</button>
-    </form>
-  `);
+  res.sendFile(path.join(__dirname, "public", "admin-login.html"));
 });
 
 app.post("/admin-login", (req, res) => {
   const { username, password } = req.body;
+
   db.get(
     "SELECT * FROM admins WHERE username=? AND password=?",
     [username, password],
@@ -190,7 +205,7 @@ app.post("/admin-login", (req, res) => {
         req.session.admin = true;
         res.redirect("/admin");
       } else {
-        res.send("Login failed");
+        res.send("❌ Login failed");
       }
     }
   );
@@ -198,12 +213,17 @@ app.post("/admin-login", (req, res) => {
 
 // ---------- ADMIN PANEL ----------
 app.get("/admin", requireAdmin, (req, res) => {
-  db.all("SELECT * FROM candidates", (err, rows) => {
-    let html = `<h1>Admin Panel</h1><a href="/logout">Logout</a><hr>`;
-    rows.forEach(c => {
-      html += `<p>${c.name}: ${c.votes}</p>`;
-    });
-    res.send(html);
+  res.sendFile(path.join(__dirname, "public", "admin.html"));
+});
+
+// ---------- API ----------
+app.get("/api/candidates", (req, res) => {
+  db.all("SELECT * FROM candidates", [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: "Database error" });
+    } else {
+      res.json(rows);
+    }
   });
 });
 
@@ -213,7 +233,6 @@ app.get("/logout", (req, res) => {
 });
 
 // ---------- START ----------
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 });
-
