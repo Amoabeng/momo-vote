@@ -12,8 +12,6 @@ const PORT = process.env.PORT || 3000;
 // ---------- MIDDLEWARE ----------
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
-
-// Serve static files (VERY IMPORTANT for CSS & HTML)
 app.use(express.static("public"));
 
 app.use(session({
@@ -26,6 +24,8 @@ app.use(session({
 const db = new sqlite3.Database("./votes.db");
 
 db.serialize(() => {
+
+  // Admin table
   db.run(`
     CREATE TABLE IF NOT EXISTS admins (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,6 +34,7 @@ db.serialize(() => {
     )
   `);
 
+  // Candidates table
   db.run(`
     CREATE TABLE IF NOT EXISTS candidates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +43,16 @@ db.serialize(() => {
     )
   `);
 
-  // Insert admin if not exists
+  // Votes table (ANTI-CHEAT)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS votes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT UNIQUE,
+      candidateId INTEGER
+    )
+  `);
+
+  // Insert default admin
   db.get("SELECT COUNT(*) AS count FROM admins", (err, row) => {
     if (row.count === 0) {
       db.run(
@@ -52,18 +62,17 @@ db.serialize(() => {
     }
   });
 
-  // Insert candidates if empty
+  // Insert candidates
   db.get("SELECT COUNT(*) AS count FROM candidates", (err, row) => {
     if (row.count === 0) {
-      const candidates = ["John Mensah", "Grace Owusu", "Kwame Boateng"];
-      candidates.forEach(name => {
+      ["John Mensah", "Grace Owusu", "Kwame Boateng"].forEach(name => {
         db.run("INSERT INTO candidates (name) VALUES (?)", [name]);
       });
     }
   });
 });
 
-// ---------- MTN MOMO ----------
+// ---------- MOMO CONFIG ----------
 const SUBSCRIPTION_KEY = "PUT_PRIMARY_KEY_HERE";
 const TARGET_ENV = "sandbox";
 let pendingPayments = {};
@@ -74,7 +83,7 @@ function requireAdmin(req, res, next) {
   else res.redirect("/admin-login");
 }
 
-// ---------- HOME PAGE ----------
+// ---------- HOME ----------
 app.get("/", (req, res) => {
   db.all("SELECT * FROM candidates", (err, rows) => {
 
@@ -99,60 +108,77 @@ app.get("/", (req, res) => {
       `;
     });
 
-    html += `</div>`;
+    html += `<div class="admin-link"><a href="/admin-login">Admin Login</a></div></div>`;
 
     res.send(html);
   });
 });
 
-// ---------- VOTE ----------
+// ---------- VOTE (ANTI-CHEAT INCLUDED) ----------
 app.post("/vote", async (req, res) => {
   const candidateId = req.body.candidateId;
   const phone = req.body.phone;
   const referenceId = uuidv4();
 
-  pendingPayments[referenceId] = candidateId;
+  // Check if already voted
+  db.get("SELECT * FROM votes WHERE phone = ?", [phone], async (err, row) => {
 
-  try {
-    await axios.post(
-      "https://sandbox.momodeveloper.mtn.com/collection/v1_0/requesttopay",
-      {
-        amount: "1",
-        currency: "EUR",
-        externalId: referenceId,
-        payer: { partyIdType: "MSISDN", partyId: phone },
-        payerMessage: "Vote payment",
-        payeeNote: "Voting"
-      },
-      {
-        headers: {
-          "X-Reference-Id": referenceId,
-          "X-Target-Environment": TARGET_ENV,
-          "Ocp-Apim-Subscription-Key": SUBSCRIPTION_KEY,
-          "Content-Type": "application/json"
+    if (row) {
+      return res.send(`
+        <div style="text-align:center; padding:50px;">
+          <h2>❌ Already Voted</h2>
+          <p>This phone number has already voted.</p>
+          <a href="/">Go Back</a>
+        </div>
+      `);
+    }
+
+    pendingPayments[referenceId] = { candidateId, phone };
+
+    try {
+      await axios.post(
+        "https://sandbox.momodeveloper.mtn.com/collection/v1_0/requesttopay",
+        {
+          amount: "1",
+          currency: "EUR",
+          externalId: referenceId,
+          payer: { partyIdType: "MSISDN", partyId: phone },
+          payerMessage: "Vote payment",
+          payeeNote: "Voting"
+        },
+        {
+          headers: {
+            "X-Reference-Id": referenceId,
+            "X-Target-Environment": TARGET_ENV,
+            "Ocp-Apim-Subscription-Key": SUBSCRIPTION_KEY,
+            "Content-Type": "application/json"
+          }
         }
-      }
-    );
+      );
 
-    res.send(`
-      <div style="text-align:center; padding:50px;">
-        <h2>💳 Payment Initiated</h2>
-        <p>Dial on your phone to approve payment</p>
-        <a href="/confirm/${referenceId}">Confirm Payment</a>
-      </div>
-    `);
+      res.send(`
+        <div style="text-align:center; padding:50px;">
+          <h2>💳 Payment Initiated</h2>
+          <p>Approve payment on your phone</p>
+          <a href="/confirm/${referenceId}">Confirm Payment</a>
+        </div>
+      `);
 
-  } catch {
-    res.send("❌ Payment request failed");
-  }
+    } catch {
+      res.send("❌ Payment request failed");
+    }
+  });
 });
 
 // ---------- CONFIRM ----------
 app.get("/confirm/:ref", async (req, res) => {
-  const ref = req.params.ref;
-  const candidateId = pendingPayments[ref];
 
-  if (!candidateId) return res.send("Invalid payment");
+  const ref = req.params.ref;
+  const paymentData = pendingPayments[ref];
+
+  if (!paymentData) return res.send("Invalid payment");
+
+  const { candidateId, phone } = paymentData;
 
   try {
     const response = await axios.get(
@@ -166,9 +192,13 @@ app.get("/confirm/:ref", async (req, res) => {
     );
 
     if (response.data.status === "SUCCESSFUL") {
+
+      db.run("UPDATE candidates SET votes = votes + 1 WHERE id = ?", [candidateId]);
+
+      // Save vote (ANTI-CHEAT)
       db.run(
-        "UPDATE candidates SET votes = votes + 1 WHERE id = ?",
-        [candidateId]
+        "INSERT INTO votes (phone, candidateId) VALUES (?, ?)",
+        [phone, candidateId]
       );
 
       delete pendingPayments[ref];
@@ -180,6 +210,7 @@ app.get("/confirm/:ref", async (req, res) => {
           <a href="/">Go Back</a>
         </div>
       `);
+
     } else {
       res.send("⏳ Payment still pending...");
     }
